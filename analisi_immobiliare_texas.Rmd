@@ -1,0 +1,338 @@
+---
+title: "Analisi Immobiliare Texas"
+output: pdf_document
+date: 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+1)  I start by importing the dataset using the "read.csv" command.
+
+```{r}
+dati <- read.csv("realestate_texas.csv", sep = ",")
+```
+
+2)  In the dataset, we have eight variables of different types. Specifically:
+
+- CITY: QUALITATIVE on a NOMINAL scale.
+
+- YEAR and MONTH: although represented by numerical values, in this analysis we will consider them as ORDERED FACTORS, as they are used to indicate specific time periods ordered chronologically.
+
+- SALES, MEDIAN_PRICE, LISTINGS: QUANTITATIVE DISCRETE, taking only integer values.
+
+- VOLUME and MONTHS_INVENTORY: QUANTITATIVE CONTINUOUS, taking only float values.
+
+3)  I will now calculate various position, variability, and shape indices for all variables where it makes sense to do so. I import dplyr to help with "summarise" and moments to calculate skewness and kurtosis.
+
+```{r}
+library(dplyr)
+library(moments)
+```
+
+At this point, to avoid rewriting code, I could have used the summarise_at function from dplyr to apply the same functions to multiple columns of the dataset.
+
+```{r}
+dati %>%
+  summarise_at(vars(sales,volume,median_price,listings,months_inventory), 
+               list(median = median,sd = sd, skewness = skewness,
+                    kurtosis = kurtosis))
+```
+
+However, the results are distributed in a very confusing way, so I decided to analyze each column individually. The results refer to the sum of data from each city. Each analysis will be accompanied by a brief comment on the results obtained.
+
+3.1) Brief analysis of the "sales" variable:
+
+```{r}
+dati %>%
+  summarise(median = median(sales),
+            sd = sd(sales),
+            skewness = skewness(sales),
+            kurtosis = kurtosis(sales)-3)
+```
+
+On average, 175 houses are sold per month, with a standard deviation of about 80 sales. We have a positively skewed platykurtic distribution.
+
+3.2) Brief analysis of the "volume" variable:
+
+```{r}
+dati %>%
+  summarise(median = median(volume),
+            sd = sd(volume),
+            skewness = skewness(volume),
+            kurtosis = kurtosis(volume)-3)
+```
+
+On average, we have a total monthly sales value of 27 million dollars, with a standard deviation of 16.65 million dollars. The distribution is positively skewed and leptokurtic.
+
+3.3) Brief analysis of the "median_price" variable:
+
+```{r}
+dati %>%
+  summarise(median = median(median_price),
+            sd = sd(median_price),
+            skewness = skewness(median_price),
+            kurtosis = kurtosis(median_price)-3)
+```
+
+The average selling price of a house is 134,500 dollars, with a standard deviation of 22,662 dollars. The distribution is negatively skewed and platykurtic.
+
+3.4) Brief analysis of the "listings" variable:
+
+```{r}
+dati %>%
+  summarise(median = median(listings),
+            sd = sd(listings),
+            skwness = skewness(listings),
+            kurtosis = kurtosis(listings)-3)
+```
+
+Each month there are an average of 1,618 active listings, with a standard deviation of 753 listings. The distribution is positively skewed and platykurtic.
+
+3.5) Brief analysis of the "months_inventory" variable:
+
+```{r}
+dati %>%
+  summarise(median = median(months_inventory),
+            sd = sd(months_inventory),
+            skewness = skewness(months_inventory),
+            kurtosis = kurtosis(months_inventory)-3)
+```
+
+It would take an average of 9 months to sell all listings, with a standard deviation of about 2 months. The distribution is slightly positively skewed and platykurtic.
+
+4)  At this point, we want to know which variable has the highest variability and which is the most asymmetric. Since we're dealing with variables that have different units of measurement, it's better to calculate the coefficient of variation for each variable. I'll first create a function and then calculate it.
+
+```{r}
+CV <- function(x){
+  return(sd(x)/mean(x)*100)
+}
+  
+dati %>%
+  summarise_at(vars(sales,volume,median_price,listings,months_inventory),
+               list(cv = CV))
+```
+
+From the results obtained, we can see that the "most variable" variable is volume, which is the total value of sales in millions of dollars, with 53.70 percentage points.
+
+Moving on to asymmetry:
+
+```{r}
+dati %>%
+  summarise_at(vars(sales,volume,median_price,listings,months_inventory),
+               list(skewness = skewness))
+```
+
+Taking the absolute value of each calculated result, we can see that, as a consequence of its high variability, volume is also the most asymmetric variable.
+
+5)  At this point, I decided to divide the "median_price" variable into classes. First, I calculated the range of values between min and MAX.
+
+```{r}
+range(dati$median_price)
+```
+
+We have a min of 73800 and a max of 180000. We will therefore create six classes ranging from 70000 to 185000 with an interval of 25000.
+
+```{r}
+dati$MEDIAN_PRICE_CL <- cut(dati$median_price,
+                            breaks = c(70000,95000,110000,135000,160000,185000),
+                            labels = c("70k-95k", "95k-110k", "110k-135k", 
+                                       "135k-160k", "160k-185k"))
+```
+
+Let's now build the frequency distribution table.
+
+```{r}
+N <- dim(dati)[1] #N è uguale al numero dei valori presenti nel dataset
+ni <- table(dati$MEDIAN_PRICE_CL)
+fi <- table(dati$MEDIAN_PRICE_CL)/N
+Ni <- cumsum(ni)
+Fi <- Ni/N
+cbind(ni,fi,Ni,Fi)
+```
+
+Let's proceed by creating the graph with ggplot2.
+
+```{r}
+library(ggplot2)
+ggplot(dati, aes(x = MEDIAN_PRICE_CL)) +
+  geom_bar(stat = "count",
+           fill = "darkorange")+
+  labs(title = "Distribution of median price classes",
+       x = "House prices, dollars$", y = "Absolute frequencies")+
+  scale_y_continuous(breaks = seq(0,100,10))+
+  theme_minimal()
+
+```
+
+From the graph, we notice that the most populated class is the one with a price range of 135k-160k.
+
+Let's create the function to calculate the Gini index, we'll use it on the classes created earlier.
+
+```{r}
+gini.index <- function(x){
+  ni = table(x)
+  fi = ni/length(x)
+  fi2 = fi^2
+  J = length(table(x))
+  
+  gini = 1 - sum(fi2)
+  gini.normalizzato = gini/((J-1)/J)
+  return(gini.normalizzato)
+}
+gini.index(dati$MEDIAN_PRICE_CL)
+```
+
+The Gini index can take values ranging from 0 to 1, where 0 means homogeneity and 1 means maximum heterogeneity. With an index of 0.89, we are dealing with a variable that has high heterogeneity.
+
+6)  Seguendo il ragionamento fatto prima, se andiamo a calcolare l'indice di Gini per la variabile CITY notiamo che:
+
+```{r}
+gini.index(dati$city)
+```
+
+Con un indice pari ad 1 CITY ha eterogeneità massima, è quindi equidistribuita.
+
+7)  Andiamo quindi a calcolare un po' di probabilità. Presa una riga a caso:
+
+    -La probabilità che essa riporti la città "Beaumont" è di 60/240, cioè il 25%.
+
+    -La probabilità che riporti il mese di "Luglio" è di 20/240, cioè lo 0.083%.
+
+    -La probabilità che riporti il mese di "Dicembre" 2012 è di 4/240, cioè lo 0.016%.
+
+8)  Nel nostro dataset abbiamo una colonna per i prezzi mediani ma non per i prezzi medi, andiamo quindi a crearne una. Per far questo dividiamo tutti gli elementi della colonna volume per tutti gli elementi della colonna sales. Moltiplichiamo per un milione perchè gli elementi nella colonna volume sono espressi in milioni di dollari.
+
+```{r}
+dati$average_price <- (dati$volume / dati$sales) * 1000000
+```
+
+9)  Andiamo ora a creare una colonna che invece mostri l'efficacia degli annunci di vendita. Per fare questo andremo a calcolare il tasso di conversione dividendo il numero totale di vendite per il numero totale di annunci attivi. Più questo valore sarà alto più considereremo gli annunci efficaci e viceversa.
+
+```{r}
+dati$conversion_rate <- (dati$sales / dati$listings) * 100
+
+dati %>%
+  group_by(city) %>%
+  summarise(
+    media_tasso_conversione = mean(conversion_rate) 
+  )
+```
+
+Confrontando la media dei tassi di conversione per le quattro città osserviamo che Bryan-College Station è la città con gli annunci più efficaci, mentre Tyler è quella con gli annunci meno efficaci.
+
+10) Avvalendoci dell'aiuto del pacchetto dplyr creiamo due sommari, entrambi metteranno a confronto media e devizione standard. Nel primo i dati saranno raggruppati per città e anno:
+
+```{r}
+dati %>%
+  group_by(city,year) %>%
+  summarise_at(vars(sales,volume,listings), list(media = mean,sd = sd))
+```
+
+Nel secondo per anno e mese:
+
+```{r}
+dati %>%
+  group_by(year,month) %>%
+  summarise_at(vars(sales,volume,listings), list(media = mean,sd = sd))
+```
+
+Ora, aiutandoci con ggplot2, andremo a realizzare dei grafici che ci aiuteranno a visualizzare e comprendere al meglio i dati trattati.
+
+1)  Andiamo ad utilizzare i boxplot per confrontare la distribuzione del prezzo mediano delle case tra le varie città.
+
+```{r}
+library(ggplot2)
+
+ggplot(data = dati)+
+  geom_boxplot(aes(x=city,
+                   y=median_price),
+                   fill="darkorange")+
+  labs(title="Distribuzione del prezzo mediano delle case fra le varie città",
+       x="Città",
+       y="Prezzo mediano in dollari")+
+  scale_y_continuous(breaks = seq(75000,180000,10000))+
+  theme_minimal()
+```
+
+Dal grafico notiamo che Wichita Falls è la città con i prezzi più variabili, ha però un prezzo mediano di acquisto inferiore rispetto alle altre città. Al contario, Bryan-College Station ha il prezzo mediano d'acquisto più alto presentanto però prezzi meno variabili rispetto alle altre città.
+
+2)  Adesso utilizzeremo i boxplot per confrontare la distribuzione del valore totale delle vendite tra le varie città ma anche tra i vari anni.
+
+```{r}
+ggplot(data = dati) +
+  geom_boxplot(aes(x = factor(year),
+                   y = volume,
+                   fill = city),
+               position = "dodge") +
+  labs(title= "Confronto valore totale delle vendite fra città e anni",
+       x = "Anno", y = "Volume delle vendite in milioni di $")+
+  scale_y_continuous(breaks = seq(0,90,10))+
+  theme_minimal()
+```
+
+Dal grafico notiamo che ad eccezione di Wichita Falls i volumi sono aumentati nel tempo, complice anche l'aumento generale dei prezzi delle case. Tyler è stata la città più redditizia, Wichita Falls quella con i volumi più costanti e Bryan-College Station quella con i volumi più variabili.
+
+3)  Avvaliamoci adesso di un grafico a barre sovrapposte per per confrontare il totale delle vendite nei vari mesi e anni, sempre considerando le città.
+
+```{r}
+library(ggplot2)
+
+ggplot(data = dati) +
+  geom_col(aes(x=factor(month),
+               y=volume,
+               fill= city),
+           position = "stack")+
+  facet_grid(year ~ ., scales = "free_x")+
+  labs(title= "Volume vendite divisi per mesi/anni/città",
+       x = "Mesi", y = "Numero di vendite")+
+  scale_y_continuous(breaks = seq(0,200,50))+
+  theme_minimal()
+```
+
+VERSIONE NORMALIZZATA:
+
+```{r}
+library(ggplot2)
+
+ggplot(data = dati) +
+  geom_col(aes(x=factor(month),
+               y=volume,
+               fill= city),
+           position = "fill")+
+  facet_grid(year ~ ., scales = "free_x")+
+   labs(title= "Frequenze relative volume vendite divisi per mesi/anni/città NORMALIZZATO",
+       x = "Mesi", y = "Frequenze relative")+
+  theme_minimal()
+```
+
+Entrambi i grafici ci sono molto utili, dal primo vediamo che si hanno più vendite nei mesi primaverili/estivi rispetto a quelli autunnali/invernali. Dal secondo invece ci rendiamo conto che la città in cui si vendono più case è Tyler, seguita da Bryan-College Station, Beaumont ed infine Wichita Falls.
+
+4)  Come ultimo grafico andremo a realizzare un line chart raffigurante il prezzo di vendita di una casa nelle varie città nel corso degli anni.
+
+```{r}
+library(ggplot2)
+library(dplyr)
+
+average_median_prices <- dati %>%
+  group_by(city, year) %>%
+  summarize(mean_median_price = round(mean(median_price)), .groups = "drop")
+
+ggplot(data = average_median_prices)+
+  geom_line(aes(x=year,y=mean_median_price,color=city))+
+  geom_point(aes(x=year,y=mean_median_price,color=city))+
+  geom_text(aes(x=year, y=mean_median_price,label=mean_median_price), vjust=-0.5)+
+  labs(title= "Prezzo medio di una casa nei diversi anni",
+       x = "Anni", y = "Prezzo medio")+
+  scale_y_continuous(breaks = seq(0,180000,10000))+
+  theme_minimal()
+```
+
+-Wichita Falls si dimostra la città con i prezzi più bassi e stabili nel corso del tempo.
+
+-A Beaumont abbiamo invece assistito prima ad una discesa dei prezzi durata due anni per poi risalire e stabilizzarsi.
+
+-Tyler ha avuto un costante innalzamento dei prezzi.
+
+-Bryan-College Station si rivela la città con i prezzi più alti con un'impennata fra il 2013 e il 2014.
